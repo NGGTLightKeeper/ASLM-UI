@@ -6,7 +6,7 @@ from django.views.generic import TemplateView, DetailView, ListView
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 import json
-from ..Data.models import *
+from ..Data.models import Chat, Message, MessageImage
 from API import llm_api
 from Settings import settings
 
@@ -47,8 +47,12 @@ def chat_api(request):
         options = data.get('options', {})
         chat_id = data.get('chat_id', '')
 
-        if not user_message or not model_name:
-            return JsonResponse({'error': 'Missing message or model parameter'}, status=400)
+        images = data.get('images', [])  # list of base64-encoded strings
+
+        if not model_name:
+            return JsonResponse({'error': 'Missing model parameter'}, status=400)
+        if not user_message and not images:
+            return JsonResponse({'error': 'Missing message or images'}, status=400)
             
         # Get or create chat
         if chat_id:
@@ -61,13 +65,22 @@ def chat_api(request):
             title = user_message[:30] + ('...' if len(user_message) > 30 else '')
             chat = Chat.objects.create(title=title)
             
-        # Save user message to DB
-        Message.objects.create(chat=chat, role='user', content=user_message)
+        # Save user message to DB and attach images
+        user_msg = Message.objects.create(chat=chat, role='user', content=user_message)
+        if images:
+            for order, b64 in enumerate(images):
+                # Try to detect mime type from base64 header; fall back to jpeg
+                mime = 'image/jpeg'
+                if b64.startswith('/9j/'):
+                    mime = 'image/jpeg'
+                elif b64.startswith('iVBOR'):
+                    mime = 'image/png'
+                elif b64.startswith('R0lGO'):
+                    mime = 'image/gif'
+                elif b64.startswith('UklGR'):
+                    mime = 'image/webp'
+                MessageImage.objects.create(message=user_msg, data=b64, mime_type=mime, order=order)
 
-        # Build prompt considering system prompt if available
-        # Currently the llm_api wrapper expects a simple string or standard ollama params.
-        # We'll pass the options up as kwargs to the generator.
-        
         # Prepare kwargs for generate
         generate_kwargs = {
             'engine': 'ollama-service',
@@ -77,6 +90,10 @@ def chat_api(request):
             'stream': True
         }
         
+        # Attach images if provided (Vision models)
+        if images:
+            generate_kwargs['images'] = images
+
         # Merge options
         if options:
             generate_kwargs['options'] = options
@@ -85,18 +102,39 @@ def chat_api(request):
         # We will yield plain text chunks back to the client
         def stream_response():
             full_response = ""
+            is_thinking = False
             try:
                 # generate() with stream=True returns an iterator from ollama
                 response_iterator = llm_api.generate(**generate_kwargs)
                 for chunk in response_iterator:
-                    if 'response' in chunk:
-                        text_part = chunk['response']
+                    thinking_part = chunk.get('thinking', '')
+                    text_part = chunk.get('response', '')
+                    
+                    if thinking_part:
+                        if not is_thinking:
+                            is_thinking = True
+                            full_response += "<think>\n"
+                            yield "<think>\n"
+                        full_response += thinking_part
+                        yield thinking_part
+                        
+                    if text_part:
+                        if is_thinking:
+                            is_thinking = False
+                            full_response += "\n</think>\n"
+                            yield "\n</think>\n"
                         full_response += text_part
                         yield text_part
+                        
             except Exception as e:
                 print(f"Error during streaming: {e}")
+                if is_thinking:
+                    yield "\n</think>\n"
                 yield f"\n[Error during generation: {str(e)}]"
             finally:
+                if is_thinking:
+                    full_response += "\n</think>\n"
+                
                 # Once streaming is done (or fails), save the full response to DB
                 if full_response:
                     Message.objects.create(chat=chat, role='assistant', content=full_response)
@@ -122,8 +160,14 @@ def load_chat_api(request, chat_id):
         
     try:
         chat = Chat.objects.get(id=chat_id)
-        messages = chat.messages.all()
-        msg_list = [{'role': m.role, 'content': m.content} for m in messages]
+        messages = chat.messages.all().prefetch_related('images')
+        msg_list = []
+        for m in messages:
+            entry = {'role': m.role, 'content': m.content}
+            imgs = list(m.images.all())
+            if imgs:
+                entry['images'] = [img.data_url() for img in imgs]
+            msg_list.append(entry)
         
         return JsonResponse({'chat_id': str(chat.id), 'title': chat.title, 'messages': msg_list})
     except Chat.DoesNotExist:
@@ -156,13 +200,18 @@ def get_model_info_api(request):
         # In `ollama` python client, `show` returns a mapping directly with 'modelinfo' and 'parameters'
         modelinfo = {}
         parameters_str = ""
+        template_str = ""
         
         if isinstance(settings_data, dict):
             modelinfo = settings_data.get('modelinfo', {})
             parameters_str = settings_data.get('parameters', "")
+            template_str = settings_data.get('template', "")
+            capabilities = settings_data.get('capabilities', [])
         else:
             modelinfo = getattr(settings_data, 'modelinfo', {})
             parameters_str = getattr(settings_data, 'parameters', "")
+            template_str = getattr(settings_data, 'template', "")
+            capabilities = getattr(settings_data, 'capabilities', [])
             
         # Parse looking for context length
         for key, value in modelinfo.items():
@@ -190,13 +239,58 @@ def get_model_info_api(request):
                             # Try float
                             defaults[k] = float(v)
                         except ValueError:
-                            # Keep as string
-                            defaults[k] = v
+                            # Keep as string or boolean
+                            val_lower = v.lower()
+                            if val_lower == 'true':
+                                defaults[k] = True
+                            elif val_lower == 'false':
+                                defaults[k] = False
+                            else:
+                                defaults[k] = v
+                                
+        # Check for reasoning parameters
+        think_param_name = 'think'
+        think_level_param_name = 'think_level'
+        
+        supports_thinking = '.Think ' in template_str or '.Think\n' in template_str or '.ThinkLevel' in template_str
+        supports_think_level = '.ThinkLevel' in template_str
+        
+        if 'thinking' in capabilities:
+            supports_thinking = True
+            
+        think_candidates = ['think', 'thinking', 'reasoning']
+        for cand in think_candidates:
+            if cand in defaults:
+                think_param_name = cand
+                supports_thinking = True
+                break
+
+        if not supports_thinking and ('.Reasoning' in template_str or '.Reason ' in template_str):
+            supports_thinking = True
+            think_param_name = 'reasoning'
+            
+        level_candidates = ['think_level', 'thinking_level', 'reasoning_effort']
+        for cand in level_candidates:
+            if cand in defaults:
+                think_level_param_name = cand
+                supports_think_level = True
+                break
                 
+        if not supports_think_level and '.ReasoningEffort' in template_str:
+            supports_think_level = True
+            think_level_param_name = 'reasoning_effort'
+                
+        supports_vision = 'vision' in (capabilities or [])
+
         return JsonResponse({
             'model': model_name,
             'context_length': context_length,
-            'defaults': defaults
+            'defaults': defaults,
+            'supports_thinking': supports_thinking,
+            'supports_think_level': supports_think_level,
+            'think_param_name': think_param_name,
+            'think_level_param_name': think_level_param_name,
+            'supports_vision': supports_vision
         })
     except Exception as e:
         print(f"[ASLM-Chat UI] Error getting model info for {model_name}: {e}")

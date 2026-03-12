@@ -24,3 +24,20 @@ class Message(models.Model):
         
     def __str__(self):
         return f"{self.role}: {self.content[:50]}"
+
+
+class MessageImage(models.Model):
+    """Stores images attached to a user message (base64, no file system needed)."""
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='images')
+    mime_type = models.CharField(max_length=50, default='image/jpeg')
+    data = models.TextField()  # base64-encoded image data (without data: prefix)
+    order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order']
+
+    def data_url(self):
+        return f"data:{self.mime_type};base64,{self.data}"
+
+    def __str__(self):
+        return f"Image #{self.order} for message {self.message_id}"

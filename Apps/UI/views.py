@@ -299,3 +299,29 @@ def get_model_info_api(request):
 # Profile Page
 class profile(TemplateView):
     template_name = 'main/profile.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['chats'] = Chat.objects.all()
+        return context
+
+
+# Chat permalink — opens main page with a specific chat pre-loaded
+class chat_view(TemplateView):
+    template_name = 'main/main.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Pass preload_chat_id so JS auto-opens it
+        context['preload_chat_id'] = str(kwargs.get('chat_id', ''))
+        # Models for the sidebar
+        models = []
+        if settings.get('ollama-service'):
+            try:
+                models_data = llm_api.get_models('ollama-service')
+                models = [m.get('model') for m in models_data]
+            except Exception as e:
+                print(f"[ASLM-Chat UI] Error getting models: {e}")
+        context['models'] = models
+        context['chats'] = Chat.objects.all()
+        return context

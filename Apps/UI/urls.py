@@ -3,6 +3,7 @@ from . import views
 
 urlpatterns = [
     path('', views.main.as_view(), name='Main'),
+    path('chat/<uuid:chat_id>/', views.chat_view.as_view(), name='chat_view'),
     path('profile/', views.profile.as_view(), name='Profile'),
     path('api/chat/', views.chat_api, name='chat_api'),
     path('api/chat/<uuid:chat_id>/', views.load_chat_api, name='load_chat_api'),

@@ -18,7 +18,7 @@
     {% block extra_css %}{% endblock %}
 </head>
 
-<body>
+<body data-preload-chat="{{ preload_chat_id|default:'' }}">
 <div class="app-shell">
 
     <!-- Left Sidebar (shared across all pages) -->
@@ -36,11 +36,22 @@
 
         <div class="history-list" id="historyList">
             {% for chat in chats %}
-                <div class="chat-item" data-chat-id="{{ chat.id }}">
-                    <span class="chat-title">{{ chat.title }}</span>
-                </div>
+                <a class="chat-item" href="/chat/{{ chat.id }}/" data-chat-id="{{ chat.id }}"
+                   {% if preload_chat_id == chat.id|stringformat:"s" %}aria-current="page"{% endif %}>
+                    <div class="chat-item-icon">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+                        </svg>
+                    </div>
+                    <div class="chat-item-body">
+                        <span class="chat-item-title">{{ chat.title }}</span>
+                        <span class="chat-item-date">{{ chat.updated_at|timesince }} ago</span>
+                    </div>
+                </a>
             {% empty %}
-                <div class="chat-item empty-state">No previous chats</div>
+                <div class="chat-item empty-state">
+                    <span class="chat-item-title">No previous chats</span>
+                </div>
             {% endfor %}
         </div>
 

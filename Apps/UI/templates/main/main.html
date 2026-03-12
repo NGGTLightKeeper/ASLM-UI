@@ -111,41 +111,44 @@
         </div>
 
         <div class="settings-panel">
-            <!-- Model selector -->
-            <div class="setting-group" style="padding-bottom: 8px;">
-                <label class="setting-label" for="modelSelector">Model</label>
-                <select class="model-selector" id="modelSelector">
-                    {% if models %}
-                        {% for model in models %}
-                            <option value="{{ model }}">{{ model }}</option>
-                        {% endfor %}
-                    {% else %}
-                        <option value="">No models available</option>
-                    {% endif %}
-                </select>
+            <!-- Model selection -->
+            <div class="settings-section" id="group-model">
+                <div class="settings-section-header">
+                    Model
+                    <svg class="chevron" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
+                </div>
+                <div class="settings-section-content">
+                    <select class="model-selector" id="modelSelector">
+                        {% if models %}
+                            {% for model in models %}
+                                <option value="{{ model }}">{{ model }}</option>
+                            {% endfor %}
+                        {% else %}
+                            <option value="">No models available</option>
+                        {% endif %}
+                    </select>
+                </div>
             </div>
 
             <!-- System Prompt -->
             <div class="settings-section" id="group-system">
                 <div class="settings-section-header">
-                    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"></path></svg>
                     System Prompt
+                    <svg class="chevron" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
                 </div>
                 <div class="settings-section-content">
                     <div class="setting-group">
-                        <textarea class="setting-textarea" id="systemPrompt" rows="5" placeholder='Example, "Only answer in rhymes"'></textarea>
+                        <textarea class="setting-textarea" id="systemPrompt" rows="4" placeholder='e.g. "Only answer in rhymes"'></textarea>
                     </div>
                 </div>
             </div>
-
-            <div class="settings-divider"></div>
 
             <div id="dynamicParameters">
                 <!-- Custom Fields -->
                 <div class="settings-section collapsed" id="group-custom" style="display:none;">
                     <div class="settings-section-header">
-                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"></path></svg>
                         Custom Fields
+                        <svg class="chevron" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
                     </div>
                     <div class="settings-section-content"></div>
                 </div>
@@ -155,8 +158,8 @@
                 <!-- Settings -->
                 <div class="settings-section collapsed" id="group-settings" style="display:none;">
                     <div class="settings-section-header">
-                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"></path></svg>
                         Settings
+                        <svg class="chevron" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
                     </div>
                     <div class="settings-section-content"></div>
                 </div>
@@ -166,8 +169,8 @@
                 <!-- Sampling -->
                 <div class="settings-section collapsed" id="group-sampling" style="display:none;">
                     <div class="settings-section-header">
-                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"></path></svg>
                         Sampling
+                        <svg class="chevron" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
                     </div>
                     <div class="settings-section-content"></div>
                 </div>
@@ -177,8 +180,8 @@
                 <!-- Advanced -->
                 <div class="settings-section collapsed" id="group-advanced" style="display:none;">
                     <div class="settings-section-header">
-                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"></path></svg>
-                        Advanced Options
+                        Advanced
+                        <svg class="chevron" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
                     </div>
                     <div class="settings-section-content"></div>
                 </div>

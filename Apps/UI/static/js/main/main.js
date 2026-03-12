@@ -225,8 +225,10 @@ $(function () {
       if (response.ok) {
         const data = await response.json();
 
-        // Reset dynamic sidebar panels
-        $('.settings-section').filter(function () { return this.id.startsWith('group-') && this.id !== 'group-system'; }).hide().find('.settings-section-content').empty();
+        // Reset dynamic sidebar panels (exclude System Prompt and the new Model group)
+        $('.settings-section').filter(function () {
+          return this.id.startsWith('group-') && this.id !== 'group-system' && this.id !== 'group-model';
+        }).hide().find('.settings-section-content').empty();
         $('.settings-divider[id^="divider-"]').hide();
 
         // Update vision controls
@@ -276,19 +278,35 @@ $(function () {
             const $groupContent = $(`${groupId} .settings-section-content`);
 
             const html = `
-                            <div class="setting-group">
-                                <label class="setting-label" for="dyn_${key}">
-                                    ${config.label}
-                                    <span class="setting-value" id="val_${key}">${valStr}</span>
-                                </label>
-                                <input type="range" class="setting-range dyn-param" id="dyn_${key}" data-param="${key}" min="${config.min}" max="${config.max}" step="${config.step}" value="${val}">
-                            </div>
-                        `;
+                <div class="setting-group">
+                    <label class="setting-label" for="dyn_${key}">
+                        ${config.label}
+                        <input type="number" class="setting-number" id="val_${key}"
+                               value="${valStr}"
+                               min="${config.min}" max="${config.max}" step="${config.step}">
+                    </label>
+                    <input type="range" class="setting-range dyn-param" id="dyn_${key}" data-param="${key}"
+                           min="${config.min}" max="${config.max}" step="${config.step}" value="${val}">
+                </div>
+            `;
             $groupContent.append(html);
             $(groupId).show();
 
+            // Slider → number
             $(document).on('input', `#dyn_${key}`, function () {
-              $(`#val_${key}`).text(parseFloat(this.value).toFixed(config.decimals));
+              $(`#val_${key}`).val(parseFloat(this.value).toFixed(config.decimals));
+            });
+
+            // Number → slider (on blur or Enter), clamp to [min, max]
+            $(document).on('change blur', `#val_${key}`, function () {
+              let v = parseFloat(this.value);
+              if (isNaN(v)) v = parseFloat($(`#dyn_${key}`).val());
+              v = Math.min(config.max, Math.max(config.min, v));
+              this.value = v.toFixed(config.decimals);
+              $(`#dyn_${key}`).val(v);
+            });
+            $(document).on('keydown', `#val_${key}`, function (e) {
+              if (e.key === 'Enter') $(this).trigger('blur');
             });
 
             if (data.defaults[key] !== undefined) {
@@ -456,17 +474,32 @@ $(function () {
           if ($(`#historyList .chat-item[data-chat-id="${currentChatId}"]`).length === 0) {
             $('#historyList .empty-state').remove();
 
-            // Add new chat to the top of the history list
             const title = text.substring(0, 30) + (text.length > 30 ? '...' : '');
             const $newItem = $(`
-                <div class="chat-item active" data-chat-id="${currentChatId}">
-                    <span class="chat-title">${escHtml(title)}</span>
+              <a class="chat-item active" aria-current="page"
+                 href="/chat/${currentChatId}/"
+                 data-chat-id="${currentChatId}">
+                <div class="chat-item-icon">
+                  <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+                  </svg>
                 </div>
+                <div class="chat-item-body">
+                  <span class="chat-item-title">${escHtml(title)}</span>
+                  <span class="chat-item-date">just now</span>
+                </div>
+              </a>
             `);
 
-            $('#historyList .chat-item').removeClass('active');
+            $('#historyList .chat-item').removeClass('active').removeAttr('aria-current');
             $('#historyList').prepend($newItem);
           }
+
+          // Update topbar title and URL
+          const chatTitle = text.substring(0, 40) + (text.length > 40 ? '...' : '');
+          $chatTitle.text(chatTitle);
+          document.title = `${chatTitle} — ASLM`;
+          history.pushState({ chatId: currentChatId }, chatTitle, `/chat/${currentChatId}/`);
         }
 
         // Stream reader
@@ -655,22 +688,30 @@ $(function () {
     $messagesArea.scrollTop($messagesArea[0].scrollHeight);
   }
 
-  /* ── Chat Switching History ───────────────────────────────────────────── */
-  $(document).on('click', '#historyList .chat-item', function () {
-    const chatId = $(this).data('chat-id');
+  /* ── Chat Loading Helper ─────────────────────────────────── */
+  function loadChat(chatId, pushState) {
     if (!chatId || currentChatId === chatId) return;
 
-    // Update UI selection
-    $('#historyList .chat-item').removeClass('active');
-    $(this).addClass('active');
-
-    // Load historical chats
     $.ajax({
       url: `/api/chat/${chatId}/`,
       method: 'GET',
       success: function (data) {
-        if (data.messages) {
+        if (data.messages !== undefined) {
           currentChatId = chatId;
+
+          // Update sidebar active state
+          $('#historyList .chat-item').removeClass('active').removeAttr('aria-current');
+          $(`#historyList .chat-item[data-chat-id="${chatId}"]`).addClass('active').attr('aria-current', 'page');
+
+          // Update page title
+          const title = data.title || 'Chat';
+          $chatTitle.text(title);
+          document.title = `${title} \u2014 ASLM`;
+
+          // Push browser history so URL reflects the chat permalink
+          if (pushState !== false) {
+            history.pushState({ chatId }, title, `/chat/${chatId}/`);
+          }
 
           // Clear current view
           $messagesInner.find('.msg').remove();
@@ -687,10 +728,32 @@ $(function () {
         }
       },
       error: function (err) {
-        console.error("Failed to load chat history:", err);
+        console.error('Failed to load chat history:', err);
       }
     });
+  }
+
+  /* ── Chat history click (intercept anchor, load via AJAX) ── */
+  $(document).on('click', '#historyList .chat-item', function (e) {
+    e.preventDefault();
+    const chatId = $(this).data('chat-id');
+    loadChat(chatId, true);
   });
+
+  // Browser back/forward button support
+  window.addEventListener('popstate', function (e) {
+    if (e.state && e.state.chatId) {
+      loadChat(e.state.chatId, false);
+    } else {
+      startNewChat();
+    }
+  });
+
+  /* ── Auto-load chat from permalink (body[data-preload-chat]) */
+  const preloadChatId = $('body').data('preload-chat');
+  if (preloadChatId) {
+    loadChat(preloadChatId, false);
+  }
 
   // Handling 'New Chat' click
   $newChatBtn.on('click', function (e) {
